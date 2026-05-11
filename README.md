@@ -1,181 +1,118 @@
-# 🏥 CareFlow AI — Post-Discharge Care Intelligence
+# CareFlow AI: Post-Discharge Care Intelligence
 
-> **AI-powered MCP server for clinical triage, care gap detection, readmission risk scoring, and physician handoff notes using FHIR R4 patient data via SHARP context propagation.**
+<div align="center">
+  <img src="https://img.shields.io/badge/Status-Hackathon_Ready-success" alt="Status" />
+  <img src="https://img.shields.io/badge/Protocol-MCP_v1.0-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/AI-Google_Gemini-orange" alt="Gemini" />
+  <img src="https://img.shields.io/badge/Data-FHIR_R4-purple" alt="FHIR" />
+</div>
 
-[![MCP Protocol](https://img.shields.io/badge/MCP-Protocol-blue?style=for-the-badge)](https://modelcontextprotocol.io)
-[![FHIR R4](https://img.shields.io/badge/FHIR-R4-green?style=for-the-badge)](https://hl7.org/fhir/R4/)
-[![SHARP](https://img.shields.io/badge/SHARP-Context-orange?style=for-the-badge)](https://www.healthit.gov/topic/standards-technology/standards/sharp)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-yellow?style=for-the-badge)](https://python.org)
-[![Claude AI](https://img.shields.io/badge/Claude-Sonnet_4-purple?style=for-the-badge)](https://anthropic.com)
+CareFlow AI is an MCP-native clinical intelligence server that helps reduce avoidable 30-day readmissions by turning discharge follow-up into a structured, risk-prioritized workflow.
 
----
-
-## 🎯 Problem Statement
-
-**20% of patients are readmitted to hospital within 30 days.** This costs the US healthcare system **$26 billion annually** (CMS data). The root causes:
-
-- **Missed care gaps** — overdue screenings, medication monitoring not flagged
-- **Poor handoffs** — critical information lost between discharge and follow-up
-- **No risk stratification** — high-risk patients don't receive intensive follow-up
-- **Rule-based triage** — misses dangerous symptom *combinations*
-
-## 💡 Solution
-
-CareFlow AI is an **MCP-powered clinical intelligence server** that:
-
-1. **Detects dangerous symptom combinations** that rule-based triage misses (e.g., chest pain + diaphoresis + arm radiation = STEMI pattern)
-2. **Cross-references FHIR data** to find care gaps (e.g., diabetic on metformin with no HbA1c in 14 months)
-3. **Scores readmission risk** beyond LACE/HOSPITAL scores using AI contextual analysis
-4. **Generates SBAR handoff notes** in seconds for physician-to-physician communication
+It combines Google Gemini reasoning with FHIR R4 patient context to deliver:
+- symptom triage with urgency scoring,
+- care gap detection,
+- readmission risk analysis,
+- and physician-ready SBAR handoff notes.
 
 ---
 
-## 🏗 Architecture
+## Executive Summary
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Prompt Opinion Platform                │
-│                  (MCP Client / Marketplace)              │
-└──────────────────────┬──────────────────────────────────┘
-                       │  JSON-RPC / MCP Protocol
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│               CareFlow AI MCP Server                    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │ Symptom  │  │  Care    │  │ Handoff  │  │Readmit │ │
-│  │ Triage   │  │  Gaps    │  │  Note    │  │ Risk   │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───┬────┘ │
-│       │              │              │             │      │
-│  ┌────▼──────────────▼──────────────▼─────────────▼───┐ │
-│  │              AI Provider (Claude Sonnet 4)         │ │
-│  │        Clinical Prompt Templates + JSON Parse      │ │
-│  └────────────────────┬───────────────────────────────┘ │
-│                       │                                  │
-│  ┌────────────────────▼───────────────────────────────┐ │
-│  │           FHIR R4 Client (SHARP Context)           │ │
-│  │    Patient | Condition | MedicationRequest |       │ │
-│  │    Observation | AllergyIntolerance | Encounter    │ │
-│  └────────────────────┬───────────────────────────────┘ │
-└───────────────────────┼─────────────────────────────────┘
-                        │  FHIR R4 API
-                        ▼
-               ┌──────────────────┐
-               │  HAPI FHIR R4    │
-               │  Public Sandbox  │
-               │  (Synthetic Data)│
-               └──────────────────┘
-```
+Post-discharge transitions are one of the highest-risk moments in care delivery. Teams often miss early warning signals because triage, preventive follow-up, and handoff communication are disconnected across systems.
 
-### SHARP Context Propagation
+CareFlow AI addresses this gap with interoperable MCP tools that plug into any compatible assistant or client. Each tool produces structured, action-oriented output that can be consumed by care coordinators, clinicians, or downstream automation.
 
-CareFlow AI supports SHARP-on-MCP context headers:
+---
+
+## Why This Matters for Hackathon Judging
+
+| Judging Dimension | CareFlow AI Value |
+|---|---|
+| **Impact** | Addresses a major healthcare cost center: preventable readmissions and delayed follow-up. |
+| **AI Quality** | Uses Gemini to reason over symptom combinations and patient context rather than static rule checks. |
+| **Interoperability** | Built with MCP + FHIR R4 + SHARP-compatible context headers. |
+| **Execution Feasibility** | Runs locally in minutes and deploys directly to Railway or Render. |
+
+---
+
+## Core MCP Tools
+
+| Tool | What It Does | Primary Output |
+|---|---|---|
+| `analyze_symptoms` | Triages symptoms with optional FHIR context enrichment | Urgency level/score, red flags, care pathway |
+| `detect_care_gaps` | Identifies preventive or monitoring gaps from patient context | Prioritized gap list and recommended follow-up |
+| `compute_readmission_risk` | Estimates 30-day readmission risk and key drivers | Risk score/category, factors, interventions |
+| `generate_handoff_note` | Produces structured SBAR handoff content | Situation, Background, Assessment, Recommendation |
+
+---
+
+## Technical Architecture
+
+- **Application Layer:** FastMCP server exposing HTTP MCP tools
+- **AI Layer:** Google Gemini via `google-genai` (`AI_MODEL` configurable)
+- **Clinical Data Layer:** Async FHIR R4 access via `httpx`
+- **Contract Layer:** Pydantic schemas for predictable I/O
+- **Reliability:** Retry logic, timeout handling, and robust JSON extraction/repair
+
+### SHARP Context Headers
 
 | Header | Purpose |
 |---|---|
-| `X-FHIR-Server-URL` | FHIR R4 server base URL |
+| `X-FHIR-Server-URL` | FHIR base URL |
 | `X-FHIR-Access-Token` | Bearer token for FHIR auth |
 | `X-Patient-ID` | Patient resource ID |
 
-When provided, all tools automatically enrich their analysis with live FHIR patient data. When absent, tools gracefully degrade to AI-only mode.
+When headers are provided, tools run with live patient context. Without headers, tools run in AI-only mode.
 
 ---
 
-## 🛠 MCP Tools
+## Quick Start
 
-### Tool 1: `analyze_symptoms`
-**AI-powered symptom triage with FHIR context enrichment**
+### Requirements
+- Python 3.10+
+- Google Gemini API key ([Google AI Studio](https://aistudio.google.com/apikey))
 
-Detects dangerous symptom combinations and medication interactions that rule-based triage systems miss.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `symptoms` | string | ✅ | Patient symptoms |
-| `patient_age` | int | ❌ | Age in years |
-| `fhir_server_url` | string | ❌ | FHIR R4 server URL |
-| `fhir_access_token` | string | ❌ | FHIR auth token |
-| `patient_id` | string | ❌ | FHIR Patient ID |
-
-**Returns:** urgency_level, urgency_score, red_flags, likely_conditions, care_pathway, ai_reasoning
-
-### Tool 2: `detect_care_gaps`
-**Cross-references conditions/medications/labs to find overdue screenings**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `patient_id` | string | ✅ | FHIR Patient ID |
-| `fhir_server_url` | string | ❌ | FHIR R4 server URL |
-| `fhir_access_token` | string | ❌ | FHIR auth token |
-| `patient_age` | int | ❌ | Age in years |
-
-**Returns:** care_gaps[], high_priority_count, summary, recommended_appointment_type
-
-### Tool 3: `generate_handoff_note`
-**SBAR-format physician handoff note generation**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `symptoms` | string | ✅ | Patient symptoms |
-| `triage_result` | string | ❌ | JSON from Tool 1 |
-| `care_gaps_result` | string | ❌ | JSON from Tool 2 |
-| `fhir_server_url` | string | ❌ | FHIR R4 server URL |
-| `fhir_access_token` | string | ❌ | FHIR auth token |
-| `patient_id` | string | ❌ | FHIR Patient ID |
-
-**Returns:** sbar_note{situation, background, assessment, recommendation}, urgency_flag, key_action_items
-
-### Tool 4: `compute_readmission_risk`
-**AI-enhanced 30-day readmission probability with interventions**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `patient_id` | string | ✅ | FHIR Patient ID |
-| `fhir_server_url` | string | ❌ | FHIR R4 server URL |
-| `fhir_access_token` | string | ❌ | FHIR auth token |
-| `discharge_diagnosis` | string | ❌ | Primary diagnosis |
-| `patient_age` | int | ❌ | Age in years |
-
-**Returns:** risk_score (0-100), risk_category, risk_factors[], interventions[], follow_up_timeline
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.11+
-- Anthropic API key ([get one here](https://console.anthropic.com))
-
-### Local Setup
+### 1. Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/careflow-ai.git
-cd careflow-ai
-
-# Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Mac/Linux
-
-# Install dependencies
+source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-# Configure environment
+### 2. Configure
+
+```bash
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+```
 
-# Start the server
+Set the key variables:
+
+```env
+GOOGLE_API_KEY=your-gemini-api-key
+AI_MODEL=gemini-3-flash-preview
+FHIR_SANDBOX_URL=https://hapi.fhir.org/baseR4
+PORT=8000
+```
+
+### 3. Run
+
+```bash
 python server.py
 ```
 
-The MCP endpoint will be available at: `http://localhost:8000/mcp`
+Endpoints:
+- MCP endpoint: `http://localhost:8000/mcp`
+- Health check: `http://localhost:8000/`
 
-### Run Tests
+### 4. Run Integration Client
 
 ```bash
-# In a separate terminal (server must be running)
 python test_client.py
 ```
 
-### Verify Tool Discovery
+### 5. Verify Tool Discovery
 
 ```bash
 curl -X POST http://localhost:8000/mcp \
@@ -185,151 +122,84 @@ curl -X POST http://localhost:8000/mcp \
 
 ---
 
-## ☁️ Deployment
+## Deployment
 
-### Railway (Recommended)
+### Railway
 
-1. Push to GitHub
-2. Go to [railway.app](https://railway.app) → **New Project → Deploy from GitHub**
-3. Add environment variables:
-   - `ANTHROPIC_API_KEY` = your key
-   - `FHIR_SANDBOX_URL` = `https://hapi.fhir.org/baseR4`
-4. Railway auto-detects the `Procfile` and deploys
-
-Your production MCP endpoint: `https://your-app.up.railway.app/mcp`
+1. Push this repository to GitHub
+2. Create a Railway project from the repo
+3. Configure environment variables:
+   - `GOOGLE_API_KEY`
+   - `AI_MODEL` (for example, `gemini-3-flash-preview`)
+   - `FHIR_SANDBOX_URL` (optional)
+4. Deploy (the included `Procfile` is already configured)
 
 ### Render
 
-1. Push to GitHub
-2. Go to [render.com](https://render.com) → **New Web Service**
-3. Connect your repo
-4. Build command: `pip install -r requirements.txt`
-5. Start command: `uvicorn server:app --host 0.0.0.0 --port $PORT`
-6. Add environment variables
+1. Create a new Web Service from this repository
+2. Build command: `pip install -r requirements.txt`
+3. Start command: `fastmcp run server.py:mcp --transport http --host 0.0.0.0 --port $PORT`
+4. Add the same environment variables as above
 
 ---
 
-## 🏪 Prompt Opinion Marketplace
+## Suggested Demo Flow (Jury-Friendly)
 
-### Publishing
+1. Invoke `analyze_symptoms` with a high-risk symptom cluster (for example, chest pain + dyspnea + diaphoresis)
+2. Invoke `detect_care_gaps` for the same patient ID
+3. Invoke `compute_readmission_risk` with discharge context
+4. Invoke `generate_handoff_note` to produce physician-ready SBAR output
 
-1. Go to [app.promptopinion.ai](https://app.promptopinion.ai)
-2. Navigate to **Marketplace → Publish New Tool**
-3. Fill in:
-   - **Name:** CareFlow AI — Post-Discharge Care Intelligence
-   - **MCP Server URL:** `https://your-app.up.railway.app/mcp`
-   - **Auth Type:** Anonymous
-   - **Category:** Clinical Decision Support
-   - **Tags:** triage, care-gaps, readmission, FHIR, SHARP
-
-### Demo Workflow
-
-```
-1. Search "CareFlow AI" in the Prompt Opinion marketplace
-2. Select and invoke `analyze_symptoms`:
-   - symptoms: "chest pain radiating to left arm, SOB, diaphoresis"
-   - patient_age: 62
-   - fhir_server_url: "https://hapi.fhir.org/baseR4"
-   - patient_id: "592012"
-3. See EMERGENT classification with red flags
-4. Invoke `detect_care_gaps` with same patient
-5. Invoke `compute_readmission_risk` with discharge diagnosis
-6. Invoke `generate_handoff_note` combining all results
-```
+This sequence demonstrates triage, prevention, risk stratification, and clinical communication in one continuous workflow.
 
 ---
 
-## 📁 Project Structure
+## Repository Structure
 
-```
+```text
 careflow-ai/
-├── server.py              # Main FastMCP server — tool registration & ASGI app
-├── requirements.txt       # Python dependencies
-├── .env.example           # Environment variable template
-├── Procfile               # Railway/Render deployment
-├── runtime.txt            # Python version pin
-├── test_client.py         # Local test suite
+├── server.py
+├── requirements.txt
+├── .env.example
+├── Procfile
+├── runtime.txt
+├── test_client.py
 ├── models/
-│   ├── __init__.py
-│   └── schemas.py         # Pydantic data models for all I/O
+│   └── schemas.py
 ├── services/
-│   ├── __init__.py
-│   ├── ai_provider.py     # Claude AI abstraction with retry logic
-│   └── fhir_client.py     # Async FHIR R4 client
+│   ├── ai_provider.py
+│   └── fhir_client.py
 ├── tools/
-│   ├── __init__.py
-│   ├── symptom_triage.py  # Tool 1: AI symptom analysis
-│   ├── care_gaps.py       # Tool 2: Care gap detection
-│   ├── handoff_note.py    # Tool 3: SBAR note generation
-│   └── readmission_risk.py# Tool 4: 30-day risk scoring
+│   ├── symptom_triage.py
+│   ├── care_gaps.py
+│   ├── handoff_note.py
+│   └── readmission_risk.py
 ├── prompts/
-│   ├── __init__.py
-│   └── clinical.py        # Prompt templates & builders
-├── utils/
-│   ├── __init__.py
-│   └── json_helpers.py    # JSON extraction & repair
-└── docs/
-    └── .gitkeep
+│   └── clinical.py
+└── utils/
+    └── json_helpers.py
 ```
 
 ---
 
-## 🔒 Compliance & Safety
+## Safety and Scope
 
-- **No PHI**: All patient data comes from HAPI FHIR public sandbox (synthetic only)
-- **No Diagnosis**: AI never provides definitive diagnoses — always recommends clinical evaluation
-- **No Medical Advice**: System is for clinical decision *support*, not replacement
-- **Data Sanitization**: All outputs are sanitized to prevent PHI leakage
-- **Audit Trail**: Structured logging for all tool invocations
-- **Graceful Degradation**: Tools never crash — return safe fallback results when AI/FHIR unavailable
+- Designed for **clinical decision support**, not diagnostic replacement
+- Demonstrated with synthetic/public FHIR sandbox data
+- Produces structured outputs suitable for audit and downstream integration
+- Includes graceful degradation when upstream AI/FHIR dependencies are unavailable
 
 ---
 
-## 🔧 Troubleshooting
+## Expected Operational Benefit
 
-| Issue | Solution |
-|---|---|
-| FastMCP version errors | `pip install "fastmcp>=2.0.0" --upgrade` |
-| HAPI FHIR slow/timeout | Tools gracefully degrade to AI-only mode |
-| Patient ID not found | Try: `592012`, `1277693`, `1855030` |
-| Claude API errors | Verify `ANTHROPIC_API_KEY` in .env or Railway Variables |
-| Railway deploy fails | Add `runtime.txt` with `python-3.11.0` |
-| `tools/list` empty | Ensure `server.py` imports run without errors |
-
----
-
-## 🗺 Roadmap
-
-- [ ] **Stage 2**: Real-time FHIR webhook subscriptions
-- [ ] **Stage 2**: Multi-patient batch analysis
-- [ ] **Stage 2**: CDS Hooks integration for Epic/Cerner
-- [ ] **Stage 3**: Longitudinal outcome tracking
-- [ ] **Stage 3**: Custom clinical protocol engine
-- [ ] **Stage 3**: HL7v2 ADT message integration
-
----
-
-## 📊 Impact Hypothesis
-
-| Metric | Current State | With CareFlow AI |
+| Metric | Traditional Workflow | With CareFlow AI |
 |---|---|---|
-| 30-day readmission rate | 20% | Estimated 15-16% (-20% reduction) |
-| Care gap detection time | Days to weeks | Seconds (real-time) |
-| Handoff note quality | Inconsistent | Standardized SBAR |
-| Annual savings potential | — | ~$3.9B at scale |
+| Post-discharge risk visibility | Fragmented and manual | Real-time and structured |
+| Care gap detection speed | Days to weeks | Seconds |
+| Handoff consistency | Variable quality | Standardized SBAR output |
+| Follow-up prioritization | Broad outreach | Risk-prioritized actions |
 
 ---
 
-## 🏆 Hackathon Scoring
-
-| Criteria | How CareFlow Delivers |
-|---|---|
-| **AI Factor** | Claude identifies symptom *combinations* and medication interactions that rule-based systems miss. Cross-references conditions with monitoring protocols. |
-| **Potential Impact** | $26B readmission problem. 20% readmission rate reducible by 15-20%. Plugs into any Epic/Cerner via FHIR. |
-| **Feasibility** | FHIR R4 standard (Epic/Cerner compatible). SHARP context headers. Synthetic data only. Deployable today. |
-
----
-
-*Built with Claude Sonnet 4 + FastMCP + FHIR R4 + SHARP-on-MCP Context Propagation*
-
-*Submission for the Prompt Opinion Healthcare AI Hackathon — Agents Assemble*
+Built with Google Gemini, FastMCP, FHIR R4, and SHARP-compatible context propagation.
