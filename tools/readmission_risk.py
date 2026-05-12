@@ -26,6 +26,9 @@ async def compute_readmission_risk(
     fhir_access_token: str = "",
     discharge_diagnosis: str = "",
     patient_age: int = 0,
+    lives_alone: bool = False,
+    has_transportation: bool = True,
+    prior_readmissions_90d: int = 0,
 ) -> dict:
     """
     AI-powered 30-day readmission risk assessment.
@@ -40,13 +43,24 @@ async def compute_readmission_risk(
     ctx = await fhir.get_patient_context(patient_id)
 
     user_prompt = build_readmission_prompt(
-        patient_id, discharge_diagnosis, patient_age, ctx
+        patient_id=patient_id,
+        discharge_diagnosis=discharge_diagnosis,
+        patient_age=patient_age,
+        lives_alone=lives_alone,
+        has_transportation=has_transportation,
+        prior_readmissions_90d=prior_readmissions_90d,
+        ctx=ctx,
     )
 
     try:
         result = await ai.analyze(READMISSION_SYSTEM, user_prompt)
         result["patient_id"] = patient_id
         result["data_source"] = "fhir_synthetic_data"
+        result["social_factors"] = {
+            "lives_alone": lives_alone,
+            "has_transportation": has_transportation,
+            "prior_readmissions_90d": prior_readmissions_90d,
+        }
         return result
 
     except ValueError as e:
@@ -73,4 +87,9 @@ async def compute_readmission_risk(
             "ai_confidence": "LOW",
             "patient_id": patient_id,
             "data_source": "fhir_synthetic_data",
+            "social_factors": {
+                "lives_alone": lives_alone,
+                "has_transportation": has_transportation,
+                "prior_readmissions_90d": prior_readmissions_90d,
+            },
         }

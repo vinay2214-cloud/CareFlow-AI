@@ -2,7 +2,7 @@
 # Production Dependencies
 
 # MCP Server Framework
-fastmcp>=2.0.0
+fastmcp>=3.2.4
 
 # ASGI Server
 uvicorn>=0.30.0

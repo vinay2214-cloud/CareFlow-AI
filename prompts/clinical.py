@@ -41,10 +41,13 @@ Return ONLY valid JSON with this EXACT structure:
 def build_triage_prompt(
     symptoms: str,
     patient_age: int = 0,
+    vital_signs: str = "",
     ctx: PatientContext | None = None,
 ) -> str:
     """Build enriched triage user prompt."""
     info = f"Age: {patient_age if patient_age else 'unknown'}"
+    if vital_signs:
+        info += f"\nVital Signs: {vital_signs}"
     if ctx and ctx.conditions:
         info += f"\nActive Conditions: {', '.join(ctx.conditions)}"
     if ctx and ctx.medications:
@@ -65,7 +68,8 @@ Patient context:
 {info}
 
 Perform a clinical triage assessment. Flag any dangerous symptom combinations
-or potential medication-symptom interactions. Consider post-discharge complications."""
+or potential medication-symptom interactions. Use vital signs when provided.
+Consider post-discharge complications."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -213,6 +217,9 @@ def build_readmission_prompt(
     patient_id: str,
     discharge_diagnosis: str = "",
     patient_age: int = 0,
+    lives_alone: bool = False,
+    has_transportation: bool = True,
+    prior_readmissions_90d: int = 0,
     ctx: PatientContext | None = None,
 ) -> str:
     """Build readmission risk user prompt."""
@@ -229,5 +236,78 @@ def build_readmission_prompt(
 - Recent Labs: {json.dumps(obs_data)}
 - Allergies: {', '.join(ctx.allergies if ctx else [])}
 
+Social Determinants of Health:
+- Lives alone: {lives_alone}
+- Has transportation to follow-up: {has_transportation}
+- Prior readmissions in last 90 days: {prior_readmissions_90d}
+
 Compute 30-day readmission risk. Consider polypharmacy, comorbidity burden,
 recent acute events, and evidence-based readmission predictors."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Medication Reconciliation
+# ═══════════════════════════════════════════════════════════════════════════
+
+MED_RECON_SYSTEM = """You are a clinical pharmacist AI performing medication
+reconciliation at hospital discharge. Analyze the discharge medication list
+against the patient's FHIR medication history and identify ALL clinically
+significant discrepancies.
+
+Pay special attention to:
+1. HIGH-ALERT medications: anticoagulants (warfarin, heparin), insulin,
+   opioids, digoxin, lithium, methotrexate, chemotherapy
+2. Drug-drug interactions in the new discharge combination
+3. Medications for known conditions that are MISSING from discharge list
+4. Therapeutic duplications (same drug class prescribed twice)
+5. Medications that were held during admission needing clear restart instructions
+6. Renal/hepatic dose adjustments needed for known organ dysfunction
+
+Return ONLY valid JSON:
+{
+  "overall_risk": "HIGH|MODERATE|LOW",
+  "safe_to_discharge": true|false,
+  "requires_pharmacist_review": true|false,
+  "discrepancies": [
+    {
+      "type": "OMISSION|DUPLICATION|INTERACTION|DOSAGE_CHANGE|HIGH_ALERT|RESTART_NEEDED",
+      "medication": "...",
+      "severity": "CRITICAL|HIGH|MODERATE|LOW",
+      "description": "...",
+      "recommended_action": "...",
+      "rationale": "..."
+    }
+  ],
+  "high_alert_medications_on_list": ["..."],
+  "drug_interactions_detected": ["..."],
+  "missing_medications_for_conditions": ["..."],
+  "pharmacist_counseling_points": ["..."],
+  "monitoring_required": ["..."],
+  "reconciliation_summary": "..."
+}"""
+
+
+def build_medication_reconciliation_prompt(
+    discharge_medications: str,
+    patient_id: str = "",
+    ctx: PatientContext | None = None,
+) -> str:
+    """Build medication reconciliation user prompt."""
+    observations = []
+    if ctx and ctx.observations:
+        observations = [o.model_dump() for o in ctx.observations[:5]]
+
+    return f"""DISCHARGE MEDICATION LIST:
+{discharge_medications}
+
+PATIENT FHIR DATA:
+- Patient ID: {patient_id or 'not provided'}
+- Pre-admission medications ({len(ctx.medications if ctx else [])} total):
+  {', '.join(ctx.medications if ctx and ctx.medications else ['None on file'])}
+- Active conditions: {', '.join(ctx.conditions if ctx and ctx.conditions else ['Unknown'])}
+- Allergies: {', '.join(ctx.allergies if ctx and ctx.allergies else ['NKDA'])}
+- Recent labs: {json.dumps(observations)}
+
+Perform complete medication reconciliation. Identify every discrepancy
+that could cause post-discharge harm or readmission. Be specific about
+which medications are concerning and exactly what action is needed."""

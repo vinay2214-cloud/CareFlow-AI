@@ -1,7 +1,7 @@
 """
 CareFlow AI — JSON Parsing & Repair Utilities
 
-Handles Claude's occasional markdown-wrapped or malformed JSON responses
+Handles AI model markdown-wrapped or malformed JSON responses
 with robust extraction and repair logic.
 """
 

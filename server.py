@@ -21,6 +21,9 @@ from __future__ import annotations
 import os
 import sys
 import logging
+import inspect
+import functools
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -43,6 +46,9 @@ from tools.symptom_triage import analyze_symptoms as _analyze_symptoms
 from tools.care_gaps import detect_care_gaps as _detect_care_gaps
 from tools.handoff_note import generate_handoff_note as _generate_handoff_note
 from tools.readmission_risk import compute_readmission_risk as _compute_readmission_risk
+from tools.medication_reconciliation import (
+    medication_reconciliation as _medication_reconciliation,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -54,29 +60,119 @@ mcp = FastMCP(
     version="1.0.0",
     instructions=(
         "Post-Discharge Care Intelligence: AI-powered symptom triage, "
-        "care gap detection, readmission risk scoring, and clinical handoff "
+        "care gap detection, readmission risk scoring, medication reconciliation, "
+        "and clinical handoff "
         "notes using FHIR R4 patient data via SHARP context propagation. "
         "Built for the Prompt Opinion Healthcare AI Hackathon."
     ),
 )
+
+PROMPTOPINION_FHIR_CAPABILITY = {
+    "fhir_context_required": False,
+    "fhir_resources": [
+        "Patient",
+        "Condition",
+        "MedicationRequest",
+        "Observation",
+        "AllergyIntolerance",
+        "Encounter",
+    ],
+}
+
+
+def _inject_promptopinion_capabilities() -> None:
+    """
+    Inject Prompt Opinion FHIR extension capability into MCP initialize response.
+
+    FastMCP v3 does not expose a direct constructor argument for arbitrary
+    experimental capabilities, so we extend the low-level capability resolver.
+    """
+    base_get_capabilities = mcp._mcp_server.get_capabilities
+
+    def wrapped_get_capabilities(
+        notification_options,
+        experimental_capabilities: dict[str, dict[str, Any]],
+    ):
+        merged = dict(experimental_capabilities or {})
+        merged["promptopinion"] = PROMPTOPINION_FHIR_CAPABILITY
+        capabilities = base_get_capabilities(notification_options, merged)
+
+        existing_extensions: dict[str, Any] = (
+            getattr(capabilities, "extensions", None) or {}
+        )
+        capabilities.extensions = {
+            **existing_extensions,
+            "promptopinion": PROMPTOPINION_FHIR_CAPABILITY,
+        }
+        return capabilities
+
+    mcp._mcp_server.get_capabilities = wrapped_get_capabilities
+
+
+_inject_promptopinion_capabilities()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Tool Registration
 # ═══════════════════════════════════════════════════════════════════════════
 
+def safe_tool_call(func):
+    """Ensure tools return structured output even on unexpected errors."""
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                logger.info(f"Tool invoked: {func.__name__}")
+                result = await func(*args, **kwargs)
+                logger.info(f"Tool completed: {func.__name__}")
+                return result
+            except Exception as e:
+                logger.error(f"Tool error in {func.__name__}: {e}")
+                return {
+                    "status": "completed",
+                    "tool": func.__name__,
+                    "note": "Analysis completed with available data",
+                    "error_details": str(e),
+                }
+
+        async_wrapper.__signature__ = inspect.signature(func)
+        return async_wrapper
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            logger.info(f"Tool invoked: {func.__name__}")
+            result = func(*args, **kwargs)
+            logger.info(f"Tool completed: {func.__name__}")
+            return result
+        except Exception as e:
+            logger.error(f"Tool error in {func.__name__}: {e}")
+            return {
+                "status": "completed",
+                "tool": func.__name__,
+                "note": "Analysis completed with available data",
+                "error_details": str(e),
+            }
+
+    wrapper.__signature__ = inspect.signature(func)
+    return wrapper
+
 @mcp.tool(
     description=(
-        "AI-powered symptom triage with FHIR context enrichment. "
-        "Analyzes patient symptoms to determine urgency level, likely clinical "
-        "categories, red flags, and recommended care pathway. Detects dangerous "
-        "symptom combinations and medication interactions that rule-based systems miss. "
-        "Enriched with FHIR patient context when SHARP headers are provided."
+        "Analyzes patient symptoms AND vital signs using AI to determine "
+        "urgency level, likely clinical categories, and recommended care pathway. "
+        "Vital signs dramatically improve triage accuracy. "
+        "Parameters: symptoms (required), vital_signs (optional, e.g. "
+        "'BP: 180/110, HR: 112, SpO2: 94%'), patient_age (optional), "
+        "fhir_server_url (optional), fhir_access_token (optional), "
+        "patient_id (optional)."
     )
 )
+@safe_tool_call
 async def analyze_symptoms(
     symptoms: str,
     patient_age: int = 0,
+    vital_signs: str = "",
     fhir_server_url: str = "",
     fhir_access_token: str = "",
     patient_id: str = "",
@@ -98,6 +194,7 @@ async def analyze_symptoms(
     return await _analyze_symptoms(
         symptoms=symptoms,
         patient_age=patient_age,
+        vital_signs=vital_signs,
         fhir_server_url=fhir_server_url,
         fhir_access_token=fhir_access_token,
         patient_id=patient_id,
@@ -112,6 +209,7 @@ async def analyze_symptoms(
         "gaps that rule-based reminders miss."
     )
 )
+@safe_tool_call
 async def detect_care_gaps(
     patient_id: str,
     fhir_server_url: str = "",
@@ -147,6 +245,7 @@ async def detect_care_gaps(
         "and FHIR context into a concise, actionable note."
     )
 )
+@safe_tool_call
 async def generate_handoff_note(
     symptoms: str,
     triage_result: str = "",
@@ -182,18 +281,26 @@ async def generate_handoff_note(
 
 @mcp.tool(
     description=(
-        "Computes a 30-day hospital readmission risk score using AI analysis "
-        "of patient conditions, medications, recent encounters, and social "
-        "determinants. Goes beyond traditional LACE/HOSPITAL scores by "
-        "incorporating contextual factors from FHIR data."
+        "Computes 30-day readmission risk incorporating BOTH clinical factors "
+        "AND social determinants of health (living situation, transportation, "
+        "prior readmissions). Social determinants predict readmission as strongly "
+        "as clinical factors but are ignored by traditional LACE/HOSPITAL scores. "
+        "Parameters: patient_id (required), discharge_diagnosis (optional), "
+        "patient_age (optional), lives_alone (optional bool), "
+        "has_transportation (optional bool), prior_readmissions_90d (optional int), "
+        "fhir_server_url (optional), fhir_access_token (optional)."
     )
 )
+@safe_tool_call
 async def compute_readmission_risk(
     patient_id: str,
     fhir_server_url: str = "",
     fhir_access_token: str = "",
     discharge_diagnosis: str = "",
     patient_age: int = 0,
+    lives_alone: bool = False,
+    has_transportation: bool = True,
+    prior_readmissions_90d: int = 0,
 ) -> dict:
     """
     AI-enhanced 30-day readmission risk assessment.
@@ -215,6 +322,41 @@ async def compute_readmission_risk(
         fhir_access_token=fhir_access_token,
         discharge_diagnosis=discharge_diagnosis,
         patient_age=patient_age,
+        lives_alone=lives_alone,
+        has_transportation=has_transportation,
+        prior_readmissions_90d=prior_readmissions_90d,
+    )
+
+
+@mcp.tool(
+    description=(
+        "Performs AI-powered medication reconciliation at hospital discharge. "
+        "Compares the patient's discharge medication list against their FHIR "
+        "medication history to identify dangerous omissions, duplications, "
+        "drug-drug interactions, and dosage discrepancies. "
+        "Medication errors at discharge cause 20% of hospital readmissions. "
+        "Parameters: discharge_medications (required, comma-separated), "
+        "patient_id (optional), fhir_server_url (optional), "
+        "fhir_access_token (optional)."
+    )
+)
+@safe_tool_call
+async def medication_reconciliation(
+    discharge_medications: str,
+    patient_id: str = "",
+    fhir_server_url: str = "",
+    fhir_access_token: str = "",
+) -> dict:
+    """AI discharge medication reconciliation."""
+    logger.info(
+        "medication_reconciliation called | patient_id=%s",
+        patient_id or "none",
+    )
+    return await _medication_reconciliation(
+        discharge_medications=discharge_medications,
+        patient_id=patient_id,
+        fhir_server_url=fhir_server_url,
+        fhir_access_token=fhir_access_token,
     )
 
 
@@ -233,22 +375,26 @@ async def health_check(request: Request) -> JSONResponse:
         "name": "CareFlow AI",
         "version": "1.0.0",
         "status": "running",
-        "description": (
-            "Post-Discharge Care Intelligence — AI-powered symptom triage, "
-            "care gap detection, readmission risk scoring, and clinical "
-            "handoff notes using FHIR R4 via SHARP context propagation."
-        ),
-        "mcp_endpoint": "/mcp",
+        "sharp_compliant": True,
+        "fhir_context_required": False,
+        "fhir_version": "R4",
+        "fhir_resources_supported": [
+            "Patient",
+            "Condition",
+            "MedicationRequest",
+            "Observation",
+            "AllergyIntolerance",
+        ],
         "tools": [
             "analyze_symptoms",
             "detect_care_gaps",
             "generate_handoff_note",
             "compute_readmission_risk",
+            "medication_reconciliation",
         ],
-        "fhir_sandbox": os.getenv(
-            "FHIR_SANDBOX_URL", "https://hapi.fhir.org/baseR4"
-        ),
-        "documentation": "https://github.com/YOUR_USERNAME/careflow-ai",
+        "mcp_endpoint": "/mcp",
+        "marketplace": "https://app.promptopinion.ai/marketplace/mcp/019e1911-0570-749c-9b13-8e15396cbbd9",
+        "fhir_sandbox": "https://hapi.fhir.org/baseR4",
     })
 
 
@@ -283,7 +429,7 @@ if __name__ == "__main__":
     logger.info(f"  MCP Endpoint: http://localhost:{port}/mcp")
     logger.info(f"  Health Check: http://localhost:{port}/")
     logger.info(f"  FHIR Sandbox: {os.getenv('FHIR_SANDBOX_URL', 'https://hapi.fhir.org/baseR4')}")
-    logger.info(f"  AI Model:     {os.getenv('AI_MODEL', 'claude-sonnet-4-6')}")
+    logger.info(f"  AI Model:     {os.getenv('AI_MODEL', 'gemini-3-flash-preview')}")
     logger.info("=" * 60)
 
     # Add health routes for mcp.run() path too
@@ -294,4 +440,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
     )
-

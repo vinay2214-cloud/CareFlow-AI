@@ -1,12 +1,12 @@
 """
 CareFlow AI — Local Test Client
 
-Tests all 4 MCP tools against the running server using the FastMCP client.
+Tests all 5 MCP tools against the running server using the FastMCP client.
 Run: python test_client.py
 
 Prerequisites:
   1. Server running: python server.py
-  2. ANTHROPIC_API_KEY set in .env (with credits)
+  2. GOOGLE_API_KEY set in .env
 """
 
 from __future__ import annotations
@@ -73,13 +73,14 @@ async def run_tests():
             "detect_care_gaps",
             "generate_handoff_note",
             "compute_readmission_risk",
+            "medication_reconciliation",
         ]
         missing = [t for t in expected if t not in tool_names]
         if missing:
             print(f"\n  {RED}MISSING TOOLS: {missing}{RESET}")
             results["discovery"] = False
         else:
-            print(f"\n  {GREEN}✅ All 4 tools discovered{RESET}")
+            print(f"\n  {GREEN}✅ All 5 tools discovered{RESET}")
             results["discovery"] = True
 
         # ── Test 1: Symptom Triage ────────────────────────────────────
@@ -91,6 +92,7 @@ async def run_tests():
                 {
                     "symptoms": "chest pain radiating to left arm, shortness of breath, diaphoresis for 2 hours",
                     "patient_age": 62,
+                    "vital_signs": "BP: 180/110, HR: 112, SpO2: 94%",
                     "fhir_server_url": HAPI_FHIR,
                     "patient_id": TEST_PATIENT_ID,
                 },
@@ -152,6 +154,9 @@ async def run_tests():
                     "fhir_server_url": HAPI_FHIR,
                     "discharge_diagnosis": "Congestive Heart Failure",
                     "patient_age": 62,
+                    "lives_alone": True,
+                    "has_transportation": False,
+                    "prior_readmissions_90d": 1,
                 },
             )
             elapsed = time.time() - start
@@ -198,6 +203,41 @@ async def run_tests():
             elapsed = time.time() - start
             print(f"  {RED}❌ Error: {e}{RESET}")
             results["handoff"] = False
+
+        # ── Test 5: Medication Reconciliation ───────────────────────────
+        banner("TEST 5: medication_reconciliation — Discharge Safety")
+        start = time.time()
+        try:
+            result = await client.call_tool(
+                "medication_reconciliation",
+                {
+                    "discharge_medications": (
+                        "Metformin 500mg BID, Lisinopril 10mg daily, "
+                        "Aspirin 81mg daily, Atorvastatin 40mg nightly"
+                    ),
+                    "patient_id": TEST_PATIENT_ID,
+                    "fhir_server_url": HAPI_FHIR,
+                },
+            )
+            elapsed = time.time() - start
+            data = extract_result(result)
+            print(json.dumps(data, indent=2))
+            print(f"\n  ⏱️  Completed in {elapsed:.1f}s")
+
+            if data.get("overall_risk"):
+                print(
+                    f"  {GREEN}✅ Reconciliation risk: {data.get('overall_risk')}, "
+                    f"safe_to_discharge={data.get('safe_to_discharge')}{RESET}"
+                )
+                results["med_recon"] = True
+            else:
+                print(f"  {RED}❌ Missing overall_risk{RESET}")
+                results["med_recon"] = False
+        except Exception as e:
+            elapsed = time.time() - start
+            print(f"  {RED}❌ Error: {e}{RESET}")
+            print(f"  ⏱️  Failed in {elapsed:.1f}s")
+            results["med_recon"] = False
 
     # ── Summary ───────────────────────────────────────────────────────
     banner("TEST SUMMARY")

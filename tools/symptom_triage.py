@@ -21,6 +21,7 @@ logger = logging.getLogger("careflow.tools.triage")
 async def analyze_symptoms(
     symptoms: str,
     patient_age: int = 0,
+    vital_signs: str = "",
     fhir_server_url: str = "",
     fhir_access_token: str = "",
     patient_id: str = "",
@@ -41,7 +42,12 @@ async def analyze_symptoms(
         ctx = await fhir.get_patient_context(patient_id)
 
     # Build prompt with enriched context
-    user_prompt = build_triage_prompt(symptoms, patient_age, ctx)
+    user_prompt = build_triage_prompt(
+        symptoms=symptoms,
+        patient_age=patient_age,
+        vital_signs=vital_signs,
+        ctx=ctx,
+    )
 
     try:
         result = await ai.analyze(TRIAGE_SYSTEM, user_prompt)
