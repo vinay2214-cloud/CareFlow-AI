@@ -375,6 +375,11 @@ async def health_check(request: Request) -> JSONResponse:
         "name": "CareFlow AI",
         "version": "1.0.0",
         "status": "running",
+        "description": (
+            "Post-Discharge Care Intelligence — AI-powered symptom triage, "
+            "care gap detection, readmission risk scoring, medication reconciliation, "
+            "and clinical handoff notes using FHIR R4 via SHARP context propagation."
+        ),
         "sharp_compliant": True,
         "fhir_context_required": False,
         "fhir_version": "R4",
@@ -395,6 +400,7 @@ async def health_check(request: Request) -> JSONResponse:
         "mcp_endpoint": "/mcp",
         "marketplace": "https://app.promptopinion.ai/marketplace/mcp/019e1911-0570-749c-9b13-8e15396cbbd9",
         "fhir_sandbox": "https://hapi.fhir.org/baseR4",
+        "documentation": "https://github.com/vinay2214-cloud/CareFlow-AI",
     })
 
 
